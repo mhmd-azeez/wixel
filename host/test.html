@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css">
+
+  <title>Wixel</title>
+</head>
+
+<body x-data="data">
+  <!-- Navbar -->
+  <nav class="navbar is-black">
+    <div class="navbar-brand">
+      <a class="navbar-item" href="#">
+        <img src="https://extism.org/img/logo.svg" alt="Logo">
+        <span class="has-text-white">Wixel</span>
+      </a>
+    </div>
+  </nav>
+
+  <div x-show="error" x-text="error" class="m-5 notification is-danger">
+
+  </div>
+
+  <section class="p-5">
+    <div class="panel">
+      <p class="panel-heading">Load Plugin</p>
+      <div class="panel-block">
+        <div class="file has-name">
+          <label class="file-label">
+            <input class="file-input" accept=".wasm" x-ref="wasmInput" x-on:change="loadWasm($el)" type="file">
+            <span class="file-cta">
+              <span class="file-icon">
+                <i class="fas fa-upload"></i>
+              </span>
+              <span class="file-label">
+                Choose a file…
+              </span>
+            </span>
+            <span class="file-name" x-text="wasmFileName">
+
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Image Panel -->
+    <div class="panel">
+      <p class="panel-heading">Load Image</p>
+      <div class="panel-block">
+
+        <div class="file has-name">
+          <label class="file-label">
+            <input class="file-input" accept="image/*" x-ref="imageInput" x-on:change="loadImage($el)" class="file-input" type="file"
+              id="imageInput">
+            <span class="file-cta">
+              <span class="file-icon">
+                <i class="fas fa-upload"></i>
+              </span>
+              <span class="file-label">
+                Choose a file…
+              </span>
+            </span>
+            <span class="file-name" x-text="imageFileName">
+
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="columns">
+
+        <div class="column is-flex is-justify-content-center">
+          <canvas class="has-background-info-light" id="inputCanvas" width="400" height="400"></canvas>
+        </div>
+
+        <div class="column"></div>
+
+        <div class="column is-flex is-justify-content-center">
+          <canvas class="has-background-info-light" id="outputCanvas" width="400" height="400"></canvas>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script type="module">
+    import { ExtismContext } from './extism-runtime.js';
+
+    window.Extism = {
+      async createPlugin(pluginBytes) {
+        const manifest = { wasm: [{ data: pluginBytes }] };
+
+        const ctx = new ExtismContext();
+        const plugin = await ctx.newPlugin(manifest);
+
+        return plugin;
+      },
+    }
+  </script>
+  <script defer>
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('data', () => ({
+        fileName: 'No file selected',
+        error: '',
+        plugin: null,
+        input: null,
+        wasmFileName: 'select a plugin',
+        imageFileName: 'select an image',
+        async loadWasm(fileInput) {
+          try {
+            const file = fileInput.files[0];
+            if (!file) return;
+            this.wasmFileName = file.name;
+
+            const bytes = await readBytesFromFile(file);
+            this.plugin = await window.Extism.createPlugin(bytes);
+
+            await this.run();
+          } catch (err) {
+            this.error = `${err}`;
+            console.error(err);
+          }
+        },
+        async loadImage(fileInput) {
+          const file = fileInput.files[0];
+          if (!file) return;
+
+          this.imageFileName = file.name;
+
+          const bytes = await readBytesFromFile(file);
+
+          const inputCanvas = document.getElementById('inputCanvas');
+          this.input = await getPixels(bytes);
+          await draw(this.input, inputCanvas);
+
+          await this.run();
+        },
+        async run() {
+          if (!this.plugin || !this.input) {
+            return;
+          }
+
+          try {
+            const pixels = new Uint8Array(this.input);
+
+            this.plugin.vars['width'] = encode(400);
+            this.plugin.vars['height'] = encode(400);
+
+            let output = await this.plugin.call('run', pixels);
+
+            const outputCanvas = document.getElementById('outputCanvas');
+            await draw(output, outputCanvas);
+          } catch (err) {
+            this.error = `${err}`;
+            console.error(err);
+          }
+        }
+      }));
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+
+    });
+
+    // Encode a u32 to a byte array using little endian
+    function encode(number) {
+      const byteArray = new Uint8Array(4); // Assuming 8-byte representation
+
+      for (let i = 0; i < byteArray.length; i++) {
+        byteArray[i] = number & 0xff; // Extract the least significant byte
+        number = number >> 8; // Shift the number right by 8 bits
+      }
+
+      return byteArray;
+    }
+
+    function readBytesFromFile(file) {
+      return new Promise((resolve, reject) => {
+        if (!file) {
+          reject('No file selected');
+          return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = function (event) {
+          const fileData = event.target.result;
+          const byteArray = new Uint8Array(fileData);
+
+          resolve(byteArray);
+        };
+
+        reader.onerror = function (event) {
+          reject('Error occurred while reading the file');
+        };
+
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    function getPixels(imageByteArray) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const image = new Image();
+
+      return new Promise((resolve, reject) => {
+        image.onload = function () {
+          canvas.width = 400;
+          canvas.height = 400;
+          ctx.drawImage(image, 0, 0, 400, 400);
+
+          const imageData = ctx.getImageData(0, 0, 400, 400);
+          const pixelData = imageData.data;
+          const grayscalePixels = [];
+
+          for (let i = 0; i < pixelData.length; i += 4) {
+            const r = pixelData[i];
+            const g = pixelData[i + 1];
+            const b = pixelData[i + 2];
+            const grayscale = Math.round(0.2989 * r + 0.587 * g + 0.114 * b);
+
+            grayscalePixels.push(grayscale);
+          }
+
+          resolve(grayscalePixels);
+        };
+
+        image.onerror = function () {
+          reject('Error occurred while processing the image');
+        };
+
+        const blob = new Blob([imageByteArray]);
+        const imageUrl = URL.createObjectURL(blob);
+        image.src = imageUrl;
+      });
+    }
+
+    async function draw(pixels, canvas) {
+      const ctx = canvas.getContext('2d');
+      const imageData = ctx.createImageData(400, 400);
+      const pixelData = imageData.data;
+
+      for (let i = 0; i < pixels.length; i++) {
+        const grayscale = pixels[i];
+        pixelData[i * 4] = grayscale; // Red channel
+        pixelData[i * 4 + 1] = grayscale; // Green channel
+        pixelData[i * 4 + 2] = grayscale; // Blue channel
+        pixelData[i * 4 + 3] = 255; // Alpha channel (fully opaque)
+      }
+
+      // Render the processed image data onto the canvas
+      return await ctx.putImageData(imageData, 0, 0);
+    }
+  </script>
