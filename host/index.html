@@ -54,8 +54,8 @@
 
         <div class="file has-name">
           <label class="file-label">
-            <input class="file-input" accept="image/*" x-ref="imageInput" x-on:change="loadImage($el)" class="file-input" type="file"
-              id="imageInput">
+            <input class="file-input" accept="image/*" x-ref="imageInput" x-on:change="loadImage($el)"
+              class="file-input" type="file" id="imageInput">
             <span class="file-cta">
               <span class="file-icon">
                 <i class="fas fa-upload"></i>
@@ -140,7 +140,7 @@
 
           const inputCanvas = document.getElementById('inputCanvas');
           this.input = await getPixels(bytes);
-          await draw(this.input, inputCanvas);
+          await draw(this.input, inputCanvas, 400, 400);
 
           await this.run();
         },
@@ -157,8 +157,11 @@
 
             let output = await this.plugin.call('run', pixels);
 
+            let width = decode(this.plugin.vars['width']) ?? 400;
+            let height = decode(this.plugin.vars['height']) ?? 400;
+
             const outputCanvas = document.getElementById('outputCanvas');
-            await draw(output, outputCanvas);
+            await draw(output, outputCanvas, width, height);
           } catch (err) {
             this.error = `${err}`;
             console.error(err);
@@ -171,7 +174,7 @@
 
     });
 
-    // Encode a u32 to a byte array using little endian
+    // Encode a u32 to a byte array using little endian encoding
     function encode(number) {
       const byteArray = new Uint8Array(4); // Assuming 8-byte representation
 
@@ -181,6 +184,20 @@
       }
 
       return byteArray;
+    }
+
+    // Decode a u32 from a byte array using little endian encoding
+    function decode(bytes) {
+
+      if (!bytes) {
+        return null;
+      }
+
+      let value = 0;
+      for (let i = 0; i < 4; i++) {
+        value |= bytes[i] << (8 * i);
+      }
+      return value;
     }
 
     function readBytesFromFile(file) {
@@ -244,9 +261,9 @@
       });
     }
 
-    async function draw(pixels, canvas) {
+    async function draw(pixels, canvas, width, height) {
       const ctx = canvas.getContext('2d');
-      const imageData = ctx.createImageData(400, 400);
+      const imageData = ctx.createImageData(width, height);
       const pixelData = imageData.data;
 
       for (let i = 0; i < pixels.length; i++) {
@@ -257,7 +274,6 @@
         pixelData[i * 4 + 3] = 255; // Alpha channel (fully opaque)
       }
 
-      // Render the processed image data onto the canvas
       return await ctx.putImageData(imageData, 0, 0);
     }
   </script>
